@@ -1,0 +1,203 @@
+---
+title: "Project1"
+author: "Harpreet Shoker"
+output:
+  pdf_document:
+    toc: yes
+  pdf document: default
+  html_document:
+    fig_caption: yes
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r gg,warning = FALSE}
+library(ggplot2)
+library(tidyr)
+library(MASS)
+library(dplyr)
+library(corrplot)
+library(naniar)
+
+```
+
+### DATA EXPLORATION
+
+Loading the train and test data sets csv files
+
+```{r }
+train <- read.csv("https://raw.githubusercontent.com/Harpreet1984/DATA621/master/HW1/moneyball-training-data.csv")
+test <- read.csv("https://raw.githubusercontent.com/Harpreet1984/DATA621/master/HW1/moneyball-evaluation-data.csv")
+train$INDEX <- NULL
+test$INDEX <- NULL
+
+cleanNames <- function(train) {
+    name_list <- names(train)
+    name_list <- gsub("TEAM_", "", name_list)
+    names(train) <- name_list
+    train
+}
+
+train <- cleanNames(train)
+test <- cleanNames(test)
+```
+There are 2,276 rows and 16 columns (features). Of all 16 columns, 0 are discrete, 16 are continuous, and 0 are all missing. There are 3,478 missing values out of 36,416 data points with highest missings from Batters hit by pitch column
+
+
+```{r }
+summary(train)
+```
+
+
+##### Histogram of Variables
+
+```{r, echo=FALSE, warning=FALSE}
+library(Hmisc)
+hist.data.frame(train)
+
+```
+This shows very few variables are normally distributed.
+
+```{r, echo=FALSE}
+
+par(mfrow=c(2,3))
+plot(TARGET_WINS ~ BATTING_H,train)
+  abline(lm(TARGET_WINS ~ BATTING_H,data = train),col="blue")
+plot(TARGET_WINS ~ BATTING_2B,train)
+  abline(lm(TARGET_WINS ~ BATTING_2B,data = train),col="blue")
+plot(TARGET_WINS ~ BATTING_3B,train)
+  abline(lm(TARGET_WINS ~ BATTING_3B,data = train),col="blue")
+plot(TARGET_WINS ~ BATTING_HR,train)
+  abline(lm(TARGET_WINS ~ BATTING_HR,data = train),col="blue")
+plot(TARGET_WINS ~ BATTING_BB,train)
+  abline(lm(TARGET_WINS ~ BATTING_BB,data = train),col="blue")
+plot(TARGET_WINS ~ BATTING_SO,train)
+  abline(lm(TARGET_WINS ~ BATTING_SO,data = train),col="blue")
+plot(TARGET_WINS ~ BASERUN_SB,train)
+  abline(lm(TARGET_WINS ~ BASERUN_SB,data = train),col="blue")
+plot(TARGET_WINS ~ BASERUN_CS,train)
+  abline(lm(TARGET_WINS ~ BASERUN_CS,data = train),col="blue")
+plot(TARGET_WINS ~ PITCHING_H,train)
+  abline(lm(TARGET_WINS ~ PITCHING_H,data = train),col="blue")
+plot(TARGET_WINS ~ PITCHING_HR,train)
+  abline(lm(TARGET_WINS ~ PITCHING_HR,data = train),col="blue")
+plot(TARGET_WINS ~ PITCHING_BB,train)
+  abline(lm(TARGET_WINS ~ PITCHING_BB,data = train),col="blue")
+plot(TARGET_WINS ~ PITCHING_SO,train)
+  abline(lm(TARGET_WINS ~ PITCHING_SO,data = train),col="blue")
+plot(TARGET_WINS ~ FIELDING_E,train)
+  abline(lm(TARGET_WINS ~ FIELDING_E,data = train),col="blue")
+plot(TARGET_WINS ~ FIELDING_DP,train)
+  abline(lm(TARGET_WINS ~ FIELDING_DP,data = train),col="blue")
+  
+```
+
+Now the datpreparation 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### DATA PREPARATION
+
+Here from the plots we can see  outliers in PITCHING_H,PITCHING_BB and PITCHING_SO 
+
+Also, since BATTING_H is a combination of BATTING_2B, BATTING_3B, BATTING_HR (and also includes batted singles), we will create a new variable BATTING_1B equaling BATTING_H - BATTING_2B - BATTING_3B - BATTING_HR and after creating this we will remove BATTING_H
+
+```{r ee ,warning=FALSE}
+vis_miss(train)
+```
+
+
+As we can see from our chart, we have a number of missing values.   Since HBP has 92% missing values, we will remove that entirely.    
+
+```{r }
+train1 <- transform(train)
+train1["BATTING_1B"] <- NA
+train1$BATTING_1B = train1$BATTING_H - train1$BATTING_HR - train1$BATTING_3B - train1$BATTING_2B
+train1 <- select(train1, -BATTING_HBP)
+train1 <- select(train1, -BATTING_H)
+#for(i in 1:ncol(train1)){
+#  train1[is.na(train1[,i]), i] <- mean(train1[,i], na.rm = TRUE)
+#}
+head(train1)
+```
+
+###### correlation
+
+```{r }
+M<-cor(train1)
+corrplot(M, method="number")
+```
+
+
+### Buliding Models
+###### MODEL1:-  Create model With all columns as features
+```{r}
+full.model <- lm (TARGET_WINS ~   . , data=train1)
+
+reduced.full.model<- step (full.model, direction = "backward")
+summary(reduced.full.model)
+```
+
+###### MODEL2:- Create model With only significant columns as features from the model 1.
+```{r bm1}
+significant.model <- lm (TARGET_WINS ~ BATTING_2B + BATTING_3B + BATTING_HR + BATTING_SO + BASERUN_SB + PITCHING_SO + FIELDING_E + FIELDING_DP + BATTING_1B , data=train1)
+
+reduced.significant.model<- step (significant.model, direction = "backward")
+summary(reduced.significant.model)
+```
+
+###### MODEL3:-  Create model With top 10 high correlation columns as features
+####### Select top 10 high correlation predictor.
+
+```{r bm2 }
+cors <- sapply(train1, cor, y=train1$TARGET_WINS)
+mask <- (rank(-abs(cors)) <= 10 )
+best10.pred <- train1[, mask]
+
+best10.pred <- subset(best10.pred, select = c(-TARGET_WINS) )
+summary(best10.pred)
+```
+
+###### Stepwise backward regression
+```{r}
+full.model.best10 <- lm (TARGET_WINS ~    BATTING_2B+ BATTING_3B + BATTING_HR + BATTING_BB + PITCHING_H +  PITCHING_HR + PITCHING_BB + FIELDING_E + BATTING_1B , data=train1)
+
+reduced.model.best10<- step (full.model.best10, direction = "backward")
+summary(reduced.model.best10)
+```
+
+### SELECTING MODEL
+Based on the above stats, Model1 with all the columns as feature is a best fit. As from all the three models it has the best RSquare, Adjusted RSquare (0.4342), F Stats and P values(less than 0.5). It also has the best RMSE score of 13.03416.
+
+### Model Application
+using the Model1 we can predict the dependent variable for the test data as follows
+```{r}
+test1 <- transform(test)
+test1["BATTING_1B"] <- NA
+test1$BATTING_1B = test1$BATTING_H - test1$BATTING_HR - test1$BATTING_3B - test1$BATTING_2B
+test1 <- select(test1, -BATTING_HBP)
+test1 <- select(test1, -BATTING_H)
+predictedValues <- predict (reduced.full.model, newdata=test1 )
+summary (predictedValues)
+```
