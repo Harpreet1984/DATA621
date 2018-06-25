@@ -1,0 +1,257 @@
+---
+title: "DATA-621 Project 2"
+author: "Harpreet Shoker"
+date: "23-Jun-2018"
+output:
+  pdf_document: default
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+---
+### Cover page
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Abstract
+In this assignment we will be discussing various classification metrics. We will be implementing these metrics using R functions and then verify these functions using various libraries like caret and pROC.
+
+The data set classification-output contains 181 rows and 11 columns and we are using three key columns - class,scored.classand scored.probability.
+
+First we have created a raw confusion matrix using table() function where  rows represent actual class values of 0 or 1. Columns represent predicted class values of 0 or 1.
+Then with the help of confusion matrix function we have calculated accuracy,classification error,precision,sensitivity and specificity etc.
+We have used "caret" package to compare and verify our results.
+Package caret has several functions that attempt to streamline the model building and evaluation process, as well as feature selection and other techniques.
+
+We tried to plot ROC curve for the dataset by creating own Roc_curve R function .
+At last we are exploring pROC package.
+
+pROC package provides Tools for visualizing, smoothing and comparing receiver operating characteristic(ROC curves). (Partial) area under the curve (AUC) can be compared with statistical tests.
+By using functions from pROC package we have compared our RoC plots .
+Overall we got the same results by using own R functions and using caret and proc functions.
+
+
+
+Complete each of the following steps as instructed:
+
+##### Loading libraries
+```{r }
+library(ggplot2)
+library(pracma)
+```
+
+### Problem 1 - Loading DATA
+ Download the classification output data set (attached in Blackboard to the assignment)
+```{r }
+# read in csv file provided for assignment 
+myurl <- "https://raw.githubusercontent.com/Harpreet1984/DATA621/master/classification-output-data.csv"
+data <- read.csv(myurl)
+head(data)
+```
+Loading the csv file from my github account and creating a data frame mydata
+The data set contains 181 rows and 11 columns
+
+###  Problem 2 - Raw confusion matrix
+The data set has three key columns we will use:
+  class: the actual class for the observation
+scored.class: the predicted class for the observation (based on a threshold of 0.5)
+scored.probability: the predicted probability of success for the observation
+Use the table() function to get the raw confusion matrix for this scored dataset. Make sure you understand the output. In particular, do the rows represent the actual or predicted class? The columns?
+
+```{r }
+tab<-table(data$class,data$scored.class)
+tab
+```
+
+Here rows represent actual class values of 0 or 1. Columns represent predicted class values of 0 or 1. So in the top left corner 119 is the number of observations where the class was correctly predicted to be 0. The top right corner shows 5 observations where the class of 0 was incorrectly predicted as 1. Similarly, we have 30 observations of class 1 incorrectedly predicted as class 0 and 27 observations of class 1 correctly predicted. 
+
+
+###  Problem 3 - Calculating ACcuracy
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the accuracy of the predictions.
+
+$Accuracy = \frac {TP + TN}  {TP + FP + TN + FN}$
+
+
+First creating a helper function that calculates the various elements of the confusion matrix. This helper function will be used in further problems of the assignment.
+
+```{r }
+confusion_mat <- function(data){
+  data.frame(tp=nrow(data[data$class==1 & data$scored.class==1,]),
+             tn=nrow(data[data$class==0 & data$scored.class==0,]),
+             fp=nrow(data[data$class==0 & data$scored.class==1,]),
+             fn=nrow(data[data$class==1 & data$scored.class==0,])
+  )
+}
+
+
+```
+
+Calulating Accuracy
+
+```{r}
+accuracy<-function(data){
+  f <- confusion_mat(data)
+  (f$tp+f$tn)/(f$tp+f$fp+f$tn+f$fn)
+}
+accuracy(data)
+```
+
+### Problem 4 - Calculating Classification error
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the classification error rate of the predictions
+
+$Classification Error Rate = \frac{FP + FN}{TP + FP + TN + FN}$
+
+```{r }
+classification_error<-function(data){
+  f <- confusion_mat(data)
+  (f$fp+f$fn)/(f$tp+f$fp+f$tn+f$fn)
+}
+classification_error(data)
+```
+###### verifying sum of accuracy and classification error is 1
+```{r }
+sum <- classification_error(data)+accuracy(data)
+sum
+```
+
+###  Problem 5 - Calculating Precision
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the precision of the predictions
+$Precision = \frac {TP} {TP + FP}$
+
+```{r }
+precision<-function(data){
+  f <- confusion_mat(data)
+  (f$tp)/(f$tp+f$fp)
+}
+precision(data)
+
+```
+
+###  Problem 6 - Calculating sensivity
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the sensitivity of the predictions. Sensitivity is also known as recall
+$Sensitivity = \frac {TP} {TP + FN}$
+
+```{r }
+sensitivity<-function(data){
+  f <- confusion_mat(data)
+  (f$tp)/(f$tp+f$fn)
+}
+sensitivity(data)
+```
+
+###   Problem 7 - Calculating Specificity
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the specificity of the predictions.
+$Specificity = \frac {TN } {TN + FP}$
+
+```{r }
+specificity<-function(data){
+  f <- confusion_mat(data)
+  (f$tn)/(f$tn+f$fp)
+}
+specificity(data)
+```
+
+###  Problem 8 - F1 Score
+ Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the F1 score of the predictions
+$F1score = \frac{2 * precision * sensitivity} {precision  + sennsitivity}$
+```{r }
+f1_score<-function(data){
+  p<- precision(data)
+  s<- sensitivity(data)
+  2*p*s/(p+s)
+}
+f1_score(data)
+```
+
+###  Problem 9 
+efore we move on, let's consider a question that was asked: What are the bounds on the F1 score? Show that the F1 score will always be between 0 and 1.
+
+```{r }
+# assume p is prescision and s is sensitivity.
+p <- runif(100, min = 0, max = 1)
+s <- runif(100, min = 0, max = 1)
+f <- (2*p*s)/(p+s)
+summary(f)
+```
+
+Ran simulation of 100  to prove that F1 is always between 0 and 1
+ 
+ Another way 
+ 
+We see from above results  Both _Precision_ and _Sensitivity_ have a range from 0 to 1. Consider that if $a>0$ and $0<b<1$, then $ab<a$ (a fraction of any positive number will be smaller than the original number).
+
+Then $P \times S < P$ and $P \times S < S$. 
+
+Then $P \times S+P \times S < P+ S$, or
+
+$2\times P \times S < P + S$.
+
+The fraction of these two values will be lower than $1$. Also, since both values are positive, $F1\ score$ will be positive. If $P$ is zero, then $S$ is zero and $F1\ Score$ is not defined. If $P$ is one and $S$ is one, then $F1\ Score$ is one.
+
+So we have $0<F\ Score\le1$.
+
+
+###  Problem 10 - ROC curve
+ Write a function that generates an ROC curve from a data set with a true classification column (class in our
+example) and a probability column (scored.probability in our example). Your function should return a list
+that includes the plot of the ROC curve and a vector that contains the calculated area under the curve
+(AUC). Note that I recommend using a sequence of thresholds ranging from 0 to 1 at 0.01 intervals.
+
+```{r }
+Roc_curve <- function(data)
+{
+  data1 = data
+  thresholds <- seq(0,1,0.01)
+  Y <- c()
+  X <- c()
+  for (thresh in thresholds) {
+    data1$scored.class <- ifelse(data1$scored.probability > thresh,1,0)
+    X <- append(X,1-specificity(data1))
+    Y <- append(Y,sensitivity(data1))
+    }
+  data1 <- data.frame(X=X,Y=Y)
+  data1 <- na.omit(data1)
+  g <- ggplot(data1,aes(X,Y)) + geom_line() + ggtitle('Custom ROC Curve') +
+    xlab('Specificity') + ylab('Sensitivity')
+  height = (data1$Y[-1]+data1$Y[-length(data1$Y)])/2
+  width = -diff(data1$X)
+  area = round(sum(height*width),4)
+  return(list(Plot =g,AUC = area))
+}
+```
+```{r }
+Roc_curve(data)
+```
+###  Problem 11. 
+Use your created R functions and the provided classification output data set to produce all of the classification metrics discussed above
+
+```{r }
+Names <- c('Accuracy','Classification Error Rate', 'Precision', 'Sensitivity','Specificity', 'F1 Score')
+Value <- round(c(accuracy(data), classification_error(data), precision(data), sensitivity(data), specificity(data), f1_score(data)),4)
+new <- as.data.frame(cbind(Names, Value))
+head(new)
+
+```
+
+### Problem 12 - Package caret
+Investigate the caret package. In particular, consider the functions confusionMatrix, sensitivity, and
+specificity. Apply the functions to the data set. How do the results compare with your own functions?
+
+```{r }
+#install.packages("caret")
+library(caret)
+caret_data <- table(data$class,data$scored.class)
+confusionMatrix(caret_data,reference = data$class)
+```
+
+### Problem 13 - Package pROC
+Investigate the pROC package. Use it to generate an ROC curve for the data set. How do the results
+compare with your own functions?
+
+```{r }
+#install.packages("pROC")
+library(pROC)
+pROC_data <- roc(data$class,data$scored.probability)
+plot(pROC_data, main = "pROC")
+```
