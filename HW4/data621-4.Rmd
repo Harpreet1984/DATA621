@@ -1,0 +1,368 @@
+---
+title: "DATA-621 Project 4"
+author: "Harpreet Shoker"
+date: "08-Jul-2018"
+output:
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+  pdf_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Cover Page
+
+##### DATA621-Assignment-4
+##### By - Harpreet Shoker
+##### Date - 08-Jul-2018
+##### University - City university of New York
+##### Professor - Marcus Ellis
+##### Abstract 
+
+The purpose of this assignment is to build a series two different models. The first model will predict whether a person will get into a car crash and the second model will be used to predict the amount as to which the crash will cost. Both of these models will utilize the customers insurance information to predict the two variables stated above.
+The data set contains approximately 8161 records. Each record represents a customer profile at an auto insurance company. Each record has two response variables. 
+The first response variable, TARGET_FLAG, is a 1 or a 0. A "1" means that the person was in a car crash. A zero means that the person was not in a car crash.
+The second response variable is TARGET_AMT. This is the amount spent on repairs if there was a crash. This value is zero if the person did not crash their car. But if they did crash their car, this number will be a value greater than zero.
+
+We will be exploring, analyzing, and modeling the training data. 
+Out of the many models we try to build we will go ahead and shortlist one model that works the best. We will then use these models on the test / evaluation data.
+
+To attain our objective, we will be follow the below steps for each modeling exercise:
+
+1 -Data Exploration 
+2 -Data Preparation 
+3 -Build Models 
+4 -Select Models 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(PerformanceAnalytics)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(lattice)
+library(tidyr)
+library(dplyr)
+library(pROC)
+library(stringr)
+library(aod)
+library(Rcpp)
+library(Amelia)
+library(corrplot)
+library(gam)
+library(pscl)
+library(ROCR)
+library(gmodels)
+library(rpart)
+library(Metrics)
+
+```
+
+
+
+### Data Exploration
+
+Reading the insurance training data set from github
+
+```{r}
+data <- read.csv('https://raw.githubusercontent.com/Harpreet1984/DATA621/master/HW4/insurance_training_data.csv', na.string = c("", "NA"), stringsAsFactors = FALSE)
+```
+
+######CHecking missing vallues
+
+Here checking ffor the missing values in the datasset provided using missmap()
+
+```{r echo = FALSE, warnings = FALSE}  
+library('Amelia')
+missmap(data, legend = TRUE, main = "Missing Values vs Observed", col =c("grey","red"))
+```
+
+
+
+ We can see in the below plot there are a few fields that have some missing values. We can see that the fields JOB, CAR_AGE, HOME_VAL, YOJ, AGE and INCOME have missing values. These need to either be removed or imputed to continue on with the analysis.
+ 
+```{r}
+ summary(data)
+```
+
+
+we notice here that the CAR_AGE filed is showing that the minimum car age is -3 which seems to be odd.This needs to be re-imputed or removed before the final models are created and selected to get optimal results.The data also contains 10 categorical variables and 16 numeric variables. The categorical data will need to be converted into a numerical field.
+
+```{r echo = FALSE}
+summary(data$TARGET_FLAG)
+hist(data$TARGET_FLAG)
+```
+```{r echo = FALSE}
+summary(data$TARGET_AMT)
+hist(data$TARGET_AMT)
+``` 
+  
+  
+Histogram for TARGET_FLAG - first target variable (TARGET_FLAG). The summary stats are saying that the mean is less than .5 which means that the data is not evenly disbuted between 0 and 1. 
+ 
+ Histogram for Target_AMT - we see that the amount that the customer paid is also around 0. 
+
+Checking for correlation between variables
+
+```{r echo = FALSE}
+library('corrplot')
+cor_plot <- cor(data[sapply(data, is.numeric)])
+corrplot(cor_plot, method = "number")
+```
+
+
+From the above correlation plot we can see that all of the variables do not correlate with each other.The variablesthat  have a low correlation signifiance may not be good choices to include in our final model for any of the target variables.variables that appear to have a relatively strong correlation between each other would be good choices for the overall model.
+
+### DATA PREPARATION
+
+Dealing with missing null values
+
+1. Removing all records that are not complete
+
+2. Removing invalid values like CAR_AGE below 0
+
+3. Converting  accounting data to numeric field (removing $ sign)
+
+```{r echo = FALSE}
+data <- data[complete.cases(data),]
+data <- data[data$CAR_AGE >= 0,]
+data
+```
+
+After performing the above two steps the total observations for the data is reduced from 8161 to 6044 total obsverations
+
+Dealing with Categorical data
+
+here are 10 fields that are categorical. These variables group the data into different sections. Most of the data contains 1 of 2 posibilities (YES/NO etc). This allows me to assign a value of 0 for one possibility and a 1 for another. The education and jobs fields were a little different. They have more than 2 possibilities. The eductaion was grouped by level of academic achievement (Masters and above = 1, below is a 0). The JOB was grouped along the same way, a college education/advanced education was grouped into one (Lwyer, Professional, Manager = 1), everybody else gets a 0. The field of CAR_TYPE is dealt the same way as well. Those who drive a Panel Truck, Pickup or Sports car will be labeled with a 1 and everything else will be labeled with a 0.
+
+```{r echo = FALSE}
+data$PARENT1 <- ifelse(data$PARENT1 == "No", 1, 0)
+data$SEX <- ifelse(data$SEX == 'M', 0, 1)
+data$CAR_USE <- ifelse(data$CAR_USE == 'Commercial', 0, 1)
+data$MSTATUS <- ifelse(data$MSTATUS == 'Yes', 0, 1)
+data$RED_CAR <- ifelse(data$RED_CAR == "no", 0, 1)
+data$EDUCATION <- ifelse(data$EDUCATION %in% c('PhD', "Masters"),0, 1)
+data$REVOKED <- ifelse(data$REVOKED == "No", 0, 1)
+data$URBANICITY <- ifelse(data$URBANICITY == "Highly Urban/ Urban", 1, 0)
+data$JOB <- ifelse(data$JOB %in% c('Professional', 'Manager', 'Student', 'Lawyer'), 1, 0)
+data$CAR_TYPE <- ifelse(data$CAR_TYPE %in% c('Panel Truck', "Pickup", "Sports Car"), 1, 0)
+
+```
+ The accounting data (dollar amount data) has dollar signs within the data. That means that the data will be treated as a character set. The dollar sign needs to be removed and the data needs to be changed into a number.
+  
+```{r}
+blue_book <- unname(sapply(data$BLUEBOOK, str_replace_all, '[,$]', ''))
+blue_book <- as.numeric(blue_book)
+
+income <- unname(sapply(data$INCOME, str_replace_all, '[,$]', ''))
+income <- as.numeric(income)
+
+home_val <- unname(sapply(data$HOME_VAL, str_replace_all, '[,$]', ''))
+home_val <- as.numeric(home_val)
+
+old_claim <- unname(sapply(data$OLDCLAIM, str_replace_all, '[,$]', ''))
+old_claim <- as.numeric(old_claim)
+
+data$BLUEBOOK <- blue_book
+data$INCOME <- income
+data$HOME_VAL <- home_val
+data$OLDCLAIM <- old_claim
+
+
+```
+### BUILD MODELS
+
+TARGET_FLAG--
+This is the target variable that will tell us there was a crash or not for the given customer. If the field takes a value of 0, that means that the customer was not in an accident, or the accident was not their fault. If the field takes a value of 1, that means the customer has been in an accident, or the accident was their fault.
+  
+The first thing that we need to do is split the data up into a training set and a test set. We will be taking the data and separating it up so 70% of the data is the training set, and 30% of the data will be the testing set.
+```{r echo = FALSE}
+data <- data[,-1]
+data <- data[sample(nrow(data)),]
+top <- round(.70 * NROW(data))
+
+train1 <- data[1:top,]
+test1 <- data[(top + 1):NROW(data),]
+```
+
+###### Model 1
+
+In this model we are doing a type of stepwise function. We are taking the training set and removing some of the variables that we feel are not good predictors. We run the model against the remaining variables and look at the output. Then, we go back through and remove anymore variables that we do not feel are good predictors. That will leave us with a final function that has all the variables that we fell will make the best predicting fun ction.
+
+```{r echo = FALSE}
+training_2a <- dplyr::select(train1, -c(KIDSDRIV,HOMEKIDS,EDUCATION,JOB,TIF,
+                                     CAR_TYPE,OLDCLAIM,CLM_FREQ,MVR_PTS))
+M11 <- lm( TARGET_FLAG~ .-TARGET_FLAG, data=training_2a)
+#summary(M11)
+M12 <- update(M11,.~.-AGE-HOMEKIDS-YOJ-INCOME-SEX-EDUCATION-BLUEBOOK-RED_CAR-OLDCLAIM-CLM_FREQ)
+#summary(M12)
+TARGET_FLAG_m1 <- M12
+summary(TARGET_FLAG_m1)
+
+answer1a <- predict(TARGET_FLAG_m1, type = "response")
+answer1a <- ifelse(answer1a <.5, 0, 1)
+```
+
+###### Model 2
+
+ In this model, we are untilizing a backwards approach into solving for the overall model. The backwards approach to variable selection starts off withh all variables in the model. I then starts to remove fields, until it gets to a point where removing anymore fields will not be beneficial to the model. That is the point when the final model is found.
+  
+```{r echo = FALSE}
+fullmod <- glm(TARGET_FLAG ~ KIDSDRIV + AGE + HOMEKIDS + YOJ + INCOME + PARENT1 + HOME_VAL + MSTATUS + SEX + EDUCATION + JOB + TRAVTIME + CAR_USE + BLUEBOOK + TIF + CAR_TYPE + RED_CAR + OLDCLAIM + CLM_FREQ + REVOKED + MVR_PTS + CAR_AGE + URBANICITY, data = train1, family=binomial(link ='probit'))
+
+backwards <- step(fullmod, trace = 0)
+prediction <- round(predict(backwards, type = 'response'), 4)
+
+answer <- ifelse(prediction < .5, 0 ,1)
+```
+
+To solve for the TARGET_FLAG field, I will be using a probit function. This function is very useful when there are only two possible outcomes for the field that you are trying to predict. This model utilizes backwards selection when picking the variables for the model. It starts out all of the variables that are possible. It then starts to remove variables until it reaches the optimal solution for the function. 
+  
+```{r echo = FALSE}
+summary(backwards)
+```
+
+###### Model 3
+
+Here again using probit function, just like during the above backwards function. This function goes the opposite way as the backward function. It starts with a plain function and adds variables until it gets to the optimal solution. Once it cannot add variables to make the equation better, it stops and that is the final output 
+
+```{r echo = FALSE}
+nothing <- glm(TARGET_FLAG ~ 1, data = train1, family = binomial(link = 'probit'))
+forwards <- step(nothing, scope = list(lower=formula(nothing), upper=formula(fullmod)), direction = "forward", trace = 0)
+
+pred <- round(predict(forwards, type = 'response'), 4)
+
+answer2 <- ifelse(pred < .5, 0 ,1)
+```
+  
+```{r echo = FALSE}
+summary(forwards)
+```
+
+
+##TARGET_AMT
+
+This is the target field that says wether the customer had to pay some amount after an accident. This field will only have a value if the TARGET_FLAG field has a 1. If the TARGET_FLAG field is a 0, then this field will be 0 as well. The first thing that we have to do is re-pick the training set. We do not want to use the exact same training set as before, because it is the same data and we really are not changing anything from the first models. We will be using a 70/30 split just like before.
+ 
+```{r echo = FALSE}
+data <- data[data$TARGET_FLAG==1,]
+data <- data[sample(nrow(data)),]
+top <- round(.70 * NROW(data))
+
+train2 <- data[1:top,]
+test2 <- data[(top + 1):NROW(data),]
+```
+
+
+##### Model 1
+
+ Using here  stepwise function. In this firstwe select a set of fields from the training set and use that as a base model. We take a look at that model and see what fields should be kept and what fields whould be removed. We remove the fields that we feel are not well correlated and get the final model. 
+```{r echo = FALSE}
+training_2a <- dplyr::select(train2, -c(KIDSDRIV,HOMEKIDS,EDUCATION,JOB,TIF,
+                                     CAR_TYPE,OLDCLAIM,CLM_FREQ,MVR_PTS))
+M11 <- lm(TARGET_AMT~ .-TARGET_FLAG, data=training_2a)
+M12 <- update(M11,.~.-HOMEKIDS-YOJ-AGE-REVOKED-INCOME-PARENT1-SEX-EDUCATION-JOB-TRAVTIME-CLM_FREQ-BLUEBOOK-RED_CAR-OLDCLAIM-CLM_FREQ-CAR_AGE) # Youqing - Model changed a little
+TARGET_AMT_m1 <- M12
+
+pred5 <- predict(TARGET_AMT_m1)
+summary(TARGET_AMT_m1)
+```
+  
+  
+
+##### Model 2
+
+Forward selection model - This model takes a "blank" equation and starts to add variables until it finds the optimal solution for the model. It is a very similar process to the first model.
+  
+  The outout for the model is as follows:
+```{r echo = FALSE}
+nothing <- lm(TARGET_AMT ~ 1, data = train2)
+forwards <- step(nothing, scope = list(lower=formula(nothing), upper=formula(fullmod)), direction = "forward", trace = 0)
+
+pred4 <- predict(forwards)
+summary(forwards)
+```
+
+comparing the two models here We can see by the summary statistics of both models, that Model 1'2 coefficients are are statistically significant (below .05 confidence), while model 1 seems to have a few variables that are not significant at all, but the R squared value for model 1 is lower than the R squared of the second model. 
+
+### Select Models
+Now that all of the models have been created and predicted, it is time to pick and choose which are the best. We will pick the best model for TARGET_FLAG (probit model) and the best model for the TARGET_AMT field (linear regression).
+The ROC curve comapres the sensitivity of the model with the specificity of the model. It bascially give the performance of the model. With that curve, we can cacluate the AUC (Area Under the Curve). The higher this number is, the better the performance of the model. We can see that model 1 is still the best choice from all three models.
+
+```{r echo - FALSE, message=FALSE, warning=FALSE}
+train3 <- cbind(train1 , answer1a[1:4231], answer, answer2)
+
+rc1 <- roc(factor(TARGET_FLAG) ~ answer1a[1:4231], data=train3)
+rc2 <- roc(factor(TARGET_FLAG) ~ answer, data=train3)
+rc3 <- roc(factor(TARGET_FLAG) ~ answer2, data=train3)
+
+plot(rc1,main='Model 1 - ROC Curve')
+plot(rc2,main='Model 2 - ROC Curve')
+plot(rc3,main='Model 3 - ROC Curve')
+
+
+model <- c('Model 1', 'Model 2', 'Model 3')
+area <- c(auc(train1$TARGET_FLAG, answer1a),auc(train1$TARGET_FLAG, answer),auc(train1$TARGET_FLAG, answer2))
+df <- data.frame(Model=model,AUC=area)
+df
+```
+
+We first check the summary stats with the two models. The first this we check is the MSE (Mean Squared Error). This is the mean of the residuals (actual - predicted) squared. It is a good way to see how accurate your model is. A smaller MSE is always good. The next things is the R squared. This is usually called the goodness of fit. The higher the R squared value the better the model is. The last thing is the F-Stat. It is most often used when comparing statistical models that have been fitted to a data set, in order to identify the model that best fits the population from which the data were sampled. 
+three of these parameters are showing that the best model to use would be model 2. It has highest R squared and the highest F-stat (which means a lower alpha value and most statistically relevant). 
+
+From the abov reults we can say
+
+TARGET_FLAG  - MODEL 1
+
+TARGET_AMT - MODEL 2
+
+  
+### Model Evaluation
+```{r echo = FALSE}
+dataeval <- read.csv("https://raw.githubusercontent.com/Harpreet1984/DATA621/master/HW4/insurance-evaluation-data.csv", stringsAsFactors = FALSE, header = TRUE, sep = "," )
+dataeval <- dataeval[,-c(1)]
+
+blue_book <- unname(sapply(dataeval$BLUEBOOK, str_replace_all, '[,$]', ''))
+blue_book <- as.numeric(blue_book)
+
+income <- unname(sapply(dataeval$INCOME, str_replace_all, '[,$]', ''))
+income <- as.numeric(income)
+
+home_val <- unname(sapply(dataeval$HOME_VAL, str_replace_all, '[,$]', ''))
+home_val <- as.numeric(home_val)
+
+old_claim <- unname(sapply(dataeval$OLDCLAIM, str_replace_all, '[,$]', ''))
+old_claim <- as.numeric(old_claim)
+
+dataeval$BLUEBOOK <- blue_book
+dataeval$INCOME <- income
+dataeval$HOME_VAL <- home_val
+dataeval$OLDCLAIM <- old_claim
+
+dataeval$TARGET_FLAG <- rep(0, NROW(dataeval))
+dataeval$TARGET_AMT <- rep(0, NROW(dataeval))
+
+dataeval <- dataeval[complete.cases(dataeval),]
+dataeval <- dataeval[dataeval$CAR_AGE >= 0,]
+
+dataeval$PARENT1 <- ifelse(dataeval$PARENT1 == "No", 1, 0)
+dataeval$SEX <- ifelse(dataeval$SEX == 'M', 0, 1)
+dataeval$CAR_USE <- ifelse(dataeval$CAR_USE == 'Commercial', 0, 1)
+dataeval$MSTATUS <- ifelse(dataeval$MSTATUS == 'Yes', 0, 1)
+dataeval$RED_CAR <- ifelse(dataeval$RED_CAR == "no", 0, 1)
+dataeval$EDUCATION <- ifelse(dataeval$EDUCATION %in% c('PhD', "Masters"),0, 1)
+dataeval$REVOKED <- ifelse(dataeval$REVOKED == "No", 0, 1)
+dataeval$URBANICITY <- ifelse(dataeval$URBANICITY == "Highly Urban/ Urban", 1, 0)
+dataeval$JOB <- ifelse(dataeval$JOB %in% c('Professional', 'Manager', 'Student', 'Lawyer'), 1, 0)
+dataeval$CAR_TYPE <- ifelse(dataeval$CAR_TYPE %in% c('Panel Truck', "Pickup", "Sports Car"), 1, 0)
+predict_eval_target_flag <- predict(TARGET_FLAG_m1, newdata = dataeval, type = 'response')
+final_answer <- ifelse(predict_eval_target_flag <.5, 0, 1)
+```
+The final flag values display the amounts can be seen in the insurance_result.csv
+
+```{r echo=FALSE}
+table(final_answer)
+write.csv(everything, file = "insurance_result.csv")
+```  
