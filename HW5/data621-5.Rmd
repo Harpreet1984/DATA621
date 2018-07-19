@@ -1,0 +1,307 @@
+---
+title: "DATA-621 Project 5"
+author: "Harpreet Shoker"
+date: "19-Jul-2018"
+output:
+  pdf_document: default
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### COVER PAGE
+
+##### DATA621-Assignment-5
+##### By - Harpreet Shoker
+##### Date - 18-Jul-2018
+##### University - City university of New York
+##### Professor - Marcus Ellis
+##### Abstract 
+
+In this homework assignment, we will explore, analyze and model a data set containing information on approximately 12795 commercially available wines using 16 variables. The variables are mostly related to the chemical properties of the wine being sold. The response variable is the number of sample cases of wine that were purchased by wine distribution companies after sampling a wine. These cases would be used to provide tasting samples to restaurants and wine stores around the United States. The more sample cases purchased, the more likely is a wine to be sold at a high end restaurant. A large wine manufacturer is studying the data in order to predict the number of wine cases ordered based upon the wine characteristics. If the wine manufacturer can predict the number of cases, then that manufacturer will be able to adjust their wine offering to maximize sales.
+
+Our objective is to build a count regression model to predict the number of cases of wine that will be sold given certain properties of the wine. 
+To attain our objective, we will be following the below best practice steps and guidelines:
+
+1 -Data Exploration 
+
+2 -Data Preparation 
+
+3 -Build Models 
+
+4 -Select Models
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(RCurl)
+library(tidyr)
+library(dplyr)
+library(pROC)
+library(stringr)
+library(psych)
+library(mice)
+library(Rcpp)
+library(Amelia)
+library(corrplot)
+library(VIM)
+library(pscl)
+library(ROCR)
+library(gmodels)
+library(rpart)
+library(Metrics)
+library(AER)
+library(caret)
+```
+
+### DATA EXPLORATION
+
+Reading the wine training data set from github
+
+```{r }
+train <- read.csv('https://raw.githubusercontent.com/Harpreet1984/DATA621/master/HW5/wine-training-data.csv', na.string = c("", "NA"), stringsAsFactors = FALSE)
+train$ï..INDEX = NULL
+head(train)
+test <- read.csv('https://raw.githubusercontent.com/Harpreet1984/DATA621/master/HW5/wine-evaluation-data.csv', na.string = c("", "NA"), stringsAsFactors = FALSE)
+```
+Only data from the training_set may be used
+The training_set contains| 12795 raw observations
+The training_set contains| 16 features (including index and targets)
+
+```{r}
+summary(train)
+```
+
+our dataset has almost all the means/medians match up. Our observation is that all 15 features other than AcidIndex have virtualy no skew, kurtosis, or standard error.Here we are not transforming any data, but before we move on to making models we should see if we can impute some data using the means of otherwise normalized features. The last  feature of this dataset is that we're doing 'count' data, with a high zero count. (Meaning many people buy 0 crates of wine) This is problematic for both all three models we'll be making. I'll consider the use of zero-inflated models.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+mis_plot = aggr(train, col=c('red','black'),
+                    numbers=TRUE, sortVars=TRUE, only.miss=TRUE, combined=TRUE,
+                    labels=names(train), cex.axis=.4,
+                    gap=3, ylab=c("Missing data","Pattern"))
+```
+
+We see here in the above figure some missing data with almost a fourth of STARS missing.  
+Since our data has already been normalized, during imputation we will be using means to impute objective features and predicting STARS (being subjective, but correlated to objective qualities) through OLS of the other features.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(Hmisc)
+hist(train[1:6],na.big = FALSE)
+``` 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(Hmisc)
+hist(train[7:12],na.big=FALSE)
+```  
+.
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(Hmisc)
+hist(train[13:15],na.big=FALSE)
+```    
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+#Creating a correlation matrix to address multi-colinearity issues
+correlationMatrix = cor(train, use='complete.obs')
+corrplot(correlationMatrix, method="number")
+``` 
+
+
+Looking at correlation matrix to see what variables might make good predictive, parsimonious model.Wine sells if critics love it, the label is appealing, and its not too acidic.
+
+
+### DATA PREPARATION
+
+Since our data has normalised values, we are not doing transformations since the distributions are more or less normally distributed.  Transforming our features into buckets or some type of ordinal data seems like needless data loss.
+
+The results of data imputation + throwing out observations with missing values, we lost 2 out of almost 13k observations. We'll seperate some data before we train models, for cross validation later. Lets start making models  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+new_train = train
+imputedData = mice(new_train, m=2, maxit = 5, method = 'pmm', seed = 15)
+new_train=mice::complete(imputedData,2)
+train$TARGET = new_train$TARGET
+imputedData = mice(train, m=2, maxit =5, method = 'norm', seed = 15)
+train=mice::complete(imputedData,2)
+train = train[complete.cases(train), ]
+missingValuePlot = aggr(train, col=c('light blue','yellow'),
+                    numbers=TRUE, sortVars=TRUE, only.miss=FALSE, combined=TRUE,
+                    labels=names(train), cex.axis=.4,
+                    gap=3, ylab=c("Missing data","Pattern"))
+
+evalTest = train
+trainE = createDataPartition(evalTest$TARGET,p=.6,list=FALSE)
+testingData = train[ -trainE, ]
+train = train[ trainE, ]
+
+```  
+
+### BUILD MODELS  
+
+Building these models here
+
+1. Standara poisson Model
+
+2. Zero - inflated poisson model - (target variable has a very high 0 occurence)
+
+3. Zero - inflated negative Binomial 
+
+4. Linear Model
+
+  
+Let us first build a base line model with all variables to get better analyzing of the results
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(MASS)
+pBase = glm(TARGET ~., data=train,family='poisson')
+```
+```{r}
+summary(pBase)
+```
+
+
+From the above results we see almost no correlation to our target variables in most variables
+
+
+###### Model 1 -  Standard poisson Model
+
+parsimonious model of just STARS, LabelAppeal,and AcidIndex...Take out any variable deemed unfit and then run it through a zero-inflated poisson model for comparison.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+m1P = glm(TARGET ~ STARS + LabelAppeal + AcidIndex , data = train, family='poisson')
+```
+```{r}
+summary(m1P)
+```  
+
+###### Model - 2 Zero inflated Model
+
+We'll make two zero-inflated models, with and without our lowly correlated VolatileAcidity variable
+
+
+With highly correlated variabls
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(pscl)
+m1ZIP = zeroinfl(TARGET ~ STARS + LabelAppeal + AcidIndex + VolatileAcidity, data = train, dist='poisson')
+```
+```{r }
+summary(m1ZIP)
+```   
+
+Without highly correlated variables
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+m2ZIP = zeroinfl(TARGET ~ STARS + LabelAppeal + AcidIndex, data = train, dist='poisson')
+```
+```{r}
+summary(m2ZIP)
+```   
+
+From the  coefficients we see its good to include VolatileAcidity in any Zero inflated model, as it definitely helps predict 0 counts. However the trade off is that it becomes a confounding variable while predicting the actual count above 0.  
+
+Lets build our negative binomial regression, then again with zero-inflation adjustment.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+nbBase = MASS::glm.nb(TARGET ~., data = train)
+```
+```{r}
+summary(nbBase)
+```  
+
+Same stats as the baseline poisson model, lets compare them using vuong test.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+vuong(pBase,nbBase)
+```  
+
+poisson model being better in this case; because I'm betting the data is overdispersed. Lets look.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+mean(train$TARGET)
+median(train$TARGET)
+```
+```{r }
+AER::dispersiontest(pBase,trafo =2)
+```  
+
+the change may be a result of imputation methods we used.
+
+###### Model 3 Zero inflated negative Binomial
+
+negative binomial, zero inflated model using everything statistically significant and one with our most salient variables. 
+
+Lastly, if I assume that wholesalers buy wine according to customer preference. I imagine most customers like fancy looking, sweet tasting wines. So I'll make a minimal feature model including an interaction between alcohol (sweetness) and label appeal.    
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+m3ZInb = zeroinfl(TARGET ~ STARS + LabelAppeal + Alcohol:LabelAppeal, data = train, dist='negbin')
+m2ZInb = zeroinfl(TARGET ~ STARS + LabelAppeal + AcidIndex, data = train, dist='negbin')
+m1ZInb = zeroinfl(TARGET ~ STARS + LabelAppeal + AcidIndex + VolatileAcidity + Alcohol, data = train, dist='negbin')
+```
+```{r }
+summary(m3ZInb)
+summary(m1ZInb)
+summary(m2ZInb)
+```  
+
+###### Model 4 Linear model
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+mLin = lm(data=train,formula=TARGET~.)
+mLin1 = step(mLin,direction = 'backward')
+Linear_model = lm(data=train, formula = TARGET ~ LabelAppeal+STARS)
+```
+```{r }
+summary(Linear_model)
+summary(mLin1)
+```
+
+Only using STARS and LabelAppeal can compete with a stepwise backward regression of every variable within .3 adjusted R2. While the stepwise regression has a better F-statistic in this case,.
+
+### SELECT MODELS
+
+Linear model with two variables LabelAppeal and STARS got a R2 of .42
+However we would like a model that can delineate between will and won't sell. 
+ZIP and ZINB were able to ascertain that we can best provide that information using acid index as well. 
+
+Testing the RMSE of our best ZIP model against the RMSE (while only using real predictions numbers (no decimals)) or our best (simplest) linear model we see that the simple linear model has a high RMSE at 1.44 to the ZIPS 1.35. I see no reason not to use AcidIndex, for a three variable ZIP model. Lets send in our predictions.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+RMSE = function(m, o){
+  sqrt(mean((m - o)^2))
+}
+
+columns = c('prediction','results')
+theZipValidation = as.data.frame(predict(m2ZIP,newdata=testingData))
+theZipValidation$results = testingData$TARGET
+colnames(theZipValidation) = columns
+theZipValidation$prediction = round(theZipValidation$prediction,1)
+theLinearValidation = as.data.frame(predict(Linear_model,newdata = testingData))
+theLinearValidation$answers = testingData$TARGET
+colnames(theLinearValidation) = columns 
+theLinearValidation$prediction = round(theLinearValidation$prediction,1)
+
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+print(c(RMSE(theLinearValidation$prediction,theLinearValidation$results),RMSE(theZipValidation$prediction,theZipValidation$results)))
+```
+
+```{r}
+results = predict(m2ZIP,test)
+hist(results)
+```  
+```{R}
+write.csv(results,'WinePredictions.csv')
+```
+
+
+
+
